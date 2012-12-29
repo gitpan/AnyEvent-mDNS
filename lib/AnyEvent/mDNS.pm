@@ -2,11 +2,11 @@ package AnyEvent::mDNS;
 
 use strict;
 use 5.008_001;
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 use AnyEvent 4.84;
 use AnyEvent::DNS;
-use AnyEvent::Handle;
+use AnyEvent::Handle::UDP;
 use AnyEvent::Socket ();
 use Socket;
 
@@ -28,33 +28,32 @@ sub discover($%) { ## no critic
     my %found;
     my $callback = $args{on_found} || sub {};
 
-    my $t; $t = AnyEvent::Handle->new(
+    my $t; $t = AnyEvent::Handle::UDP->new(
         fh => $sock,
         timeout => $args{timeout} || 3,
         on_timeout => sub {
             undef $t;
             $cb->(values %found);
         },
-        on_read => sub {
-            my $handle = shift;
-            my $buf = delete $handle->{rbuf};
+        on_recv => sub {
+            my $buf = shift;
             my $res = AnyEvent::DNS::dns_unpack $buf;
 
             my @rr  = grep { lc $_->[0] eq $fqdn && $_->[1] eq 'ptr' } @{ $res->{an} };
             my @srv = grep { $_->[1] eq 'srv' } @{$res->{ar}};
 
             if (@rr == 1 && @srv == 1) {
-                my $name = $rr[0]->[3];
+                my $name = $rr[0]->[4];
                 $name =~ s/\.$fqdn$//;
 
                 my $service = {
                     name => $name,
-                    host => $srv[0]->[6],
-                    port => $srv[0]->[5],
+                    host => $srv[0]->[7],
+                    port => $srv[0]->[6],
                     proto => $proto,
                 };
 
-                $found{$rr[0]->[3]} ||= do {
+                $found{$rr[0]->[4]} ||= do {
                     $callback->($service) if $callback;
                     $service;
                 };
